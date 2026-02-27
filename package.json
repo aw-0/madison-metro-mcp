@@ -1,0 +1,14 @@
+{
+  "name": "madison-metro-mcp",
+  "version": "0.1.0",
+  "description": "Madison Metro MCP server with BusTime credential pass-through",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
