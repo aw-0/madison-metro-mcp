@@ -1,13 +1,102 @@
 import { BusTimeApiError } from './adapters/bustime.js';
 
-function firstArray(value) {
+type JsonMap = Record<string, any>;
+
+type AuthContext = {
+  metroApiKey?: string;
+};
+
+type BusTimeAdapterLike = {
+  getPredictions: (args: { key: string; stopId: string; routeId?: string; top?: number }) => Promise<JsonMap[]>;
+  getVehicles: (args: { key: string; routeId?: string }) => Promise<JsonMap[]>;
+  getServiceBulletins: (args: { key: string; routeId?: string; stopId?: string }) => Promise<JsonMap[]>;
+  getDetours: (args: { key: string; routeId?: string }) => Promise<JsonMap[]>;
+  getRoutes: (args: { key: string }) => Promise<JsonMap[]>;
+  getStops: (args: { key: string; routeId: string; direction: string }) => Promise<JsonMap[]>;
+  getDirections: (args: { key: string; routeId: string }) => Promise<JsonMap[]>;
+};
+
+type GtfsRtAdapterLike = {
+  getPredictionsForStop: (args: { stopId: string; routeId?: string; limit?: number }) => Promise<JsonMap[]>;
+  getVehiclePositions: (args: { routeId?: string; limit?: number }) => Promise<JsonMap[]>;
+  getAlerts: (args: { routeId?: string; stopId?: string }) => Promise<JsonMap[]>;
+};
+
+type GtfsStaticAdapterLike = {
+  loaded: boolean;
+  refresh: () => Promise<void>;
+  listRoutes: (args?: { query?: string }) => JsonMap[];
+  listStops: (args?: { routeId?: string; nearLat?: number; nearLon?: number; radiusM?: number; limit?: number }) => JsonMap[];
+  getScheduledDepartures: (args: { stopId: string; routeId?: string; limit?: number; withinMinutes?: number }) => JsonMap[];
+};
+
+type StopListArgs = {
+  route_id?: string;
+  direction_id?: string;
+  near_lat?: number;
+  near_lon?: number;
+  radius_m?: number;
+  limit?: number;
+};
+
+type RouteListArgs = {
+  query?: string;
+  active_on_date?: string;
+};
+
+type NextDeparturesArgs = {
+  stop_id: string;
+  route_id?: string;
+  headsign?: string;
+  limit?: number;
+  within_minutes?: number;
+};
+
+type VehiclesArgs = {
+  route_id?: string;
+  limit?: number;
+};
+
+type AlertsArgs = {
+  route_id?: string;
+  stop_id?: string;
+};
+
+type DeparturesResponse = {
+  departures: JsonMap[];
+  api_auth_required: boolean;
+  api_auth_present: boolean;
+  source: 'api' | 'gtfs_rt' | 'schedule';
+  fallback_reason?: string;
+  api_tier_used: boolean;
+};
+
+type VehiclesResponse = {
+  vehicles: JsonMap[];
+  api_auth_required: boolean;
+  api_auth_present: boolean;
+  source: 'api' | 'gtfs_rt';
+  fallback_reason?: string;
+  api_tier_used: boolean;
+};
+
+type AlertsResponse = {
+  alerts: JsonMap[];
+  api_auth_required: boolean;
+  api_auth_present: boolean;
+  source: 'api' | 'gtfs_rt';
+  fallback_reason?: string;
+  api_tier_used: boolean;
+};
+
+function firstArray<T>(value: T[] | T | null | undefined): T[] {
   if (!value) {
     return [];
   }
   return Array.isArray(value) ? value : [value];
 }
 
-function mapBusTimePrediction(prediction) {
+function mapBusTimePrediction(prediction: JsonMap): JsonMap {
   const scheduled = prediction?.schdtm ? asIso(prediction.schdtm) : null;
   const predicted = prediction?.prdtm ? asIso(prediction.prdtm) : null;
   const delaySeconds = scheduled && predicted ? Math.floor((new Date(predicted).getTime() - new Date(scheduled).getTime()) / 1000) : null;
@@ -31,7 +120,7 @@ function mapBusTimePrediction(prediction) {
   };
 }
 
-function mapBusTimeVehicle(vehicle) {
+function mapBusTimeVehicle(vehicle: JsonMap): JsonMap {
   const capacity = normalizeCapacity(vehicle?.psgld);
 
   return {
@@ -50,7 +139,11 @@ function mapBusTimeVehicle(vehicle) {
   };
 }
 
-function mergeDepartureCapacityFromVehicles(departures, vehiclesById, vehiclesByTripId) {
+function mergeDepartureCapacityFromVehicles(
+  departures: JsonMap[],
+  vehiclesById: Map<string, JsonMap>,
+  vehiclesByTripId: Map<string, JsonMap>
+): JsonMap[] {
   return departures.map((departure) => {
     if (departure.capacity_load_raw) {
       return departure;
@@ -77,7 +170,7 @@ function mergeDepartureCapacityFromVehicles(departures, vehiclesById, vehiclesBy
   });
 }
 
-function mapBulletin(sb) {
+function mapBulletin(sb: JsonMap): JsonMap {
   return {
     id: sb.nm || sb.id,
     title: sb.ttl || 'Service bulletin',
@@ -86,7 +179,7 @@ function mapBulletin(sb) {
   };
 }
 
-function mapDetour(dtr) {
+function mapDetour(dtr: JsonMap): JsonMap {
   return {
     id: dtr.id,
     title: dtr.desc || 'Detour',
@@ -95,7 +188,7 @@ function mapDetour(dtr) {
   };
 }
 
-function mapBusTimeStop(stop, routeId = undefined, directionId = undefined) {
+function mapBusTimeStop(stop: JsonMap, routeId: string | undefined = undefined, directionId: string | undefined = undefined): JsonMap {
   return {
     stop_id: stop.stpid,
     stop_name: stop.stpnm,
@@ -106,7 +199,7 @@ function mapBusTimeStop(stop, routeId = undefined, directionId = undefined) {
   };
 }
 
-function normalizeDirectionToken(direction) {
+function normalizeDirectionToken(direction: unknown): string {
   if (!direction) {
     return '';
   }
@@ -115,10 +208,11 @@ function normalizeDirectionToken(direction) {
     return direction;
   }
 
-  return direction.id || direction.dir || direction.name || '';
+  const objectDirection = direction as { id?: string; dir?: string; name?: string };
+  return objectDirection.id || objectDirection.dir || objectDirection.name || '';
 }
 
-function normalizeCapacity(rawValue) {
+function normalizeCapacity(rawValue: unknown): { raw: string | null; level: string | null; percent: number | null } {
   const raw = typeof rawValue === 'string' ? rawValue.trim() : '';
   if (!raw) {
     return { raw: null, level: null, percent: null };
@@ -142,7 +236,7 @@ function normalizeCapacity(rawValue) {
   };
 }
 
-function parseCapacityPercent(raw) {
+function parseCapacityPercent(raw: string): number | null {
   const pctMatch = raw.match(/(\d+(?:\.\d+)?)\s*%/);
   if (pctMatch) {
     const value = Number.parseFloat(pctMatch[1]);
@@ -165,7 +259,7 @@ function parseCapacityPercent(raw) {
   return null;
 }
 
-function capacityLevelFromPercent(percent) {
+function capacityLevelFromPercent(percent: number): string {
   if (percent <= 20) return 'empty';
   if (percent <= 45) return 'low';
   if (percent <= 70) return 'medium';
@@ -173,7 +267,7 @@ function capacityLevelFromPercent(percent) {
   return 'full';
 }
 
-function inferCapacityLevelFromToken(token) {
+function inferCapacityLevelFromToken(token: string): string | null {
   if (token.includes('EMPTY')) return 'empty';
   if (token.includes('FULL') || token.includes('CRUSHED')) return 'full';
   if (token.includes('STANDING')) return 'high';
@@ -182,11 +276,11 @@ function inferCapacityLevelFromToken(token) {
   return null;
 }
 
-function clamp(value, min, max) {
+function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-const CAPACITY_LEVEL_BY_TOKEN = {
+const CAPACITY_LEVEL_BY_TOKEN: Record<string, string> = {
   EMPTY: 'empty',
   HALF_EMPTY: 'low',
   HALF_FULL: 'medium',
@@ -197,7 +291,7 @@ const CAPACITY_LEVEL_BY_TOKEN = {
   FULL: 'full'
 };
 
-function asIso(localDateString) {
+function asIso(localDateString: unknown): string | null {
   if (!localDateString) {
     return null;
   }
@@ -231,7 +325,29 @@ function asIso(localDateString) {
 }
 
 export class MetroService {
-  constructor({ busTimeAdapter, gtfsRtAdapter, gtfsStaticAdapter }) {
+  busTimeAdapter: BusTimeAdapterLike;
+  gtfsRtAdapter: GtfsRtAdapterLike;
+  gtfsStaticAdapter: GtfsStaticAdapterLike;
+  lastStatus: {
+    auth_mode: 'pass_through';
+    api_tier_used: boolean;
+    static_loaded: boolean;
+    errors: string[];
+  };
+  apiStopCache: {
+    fetchedAtMs: number;
+    stops: JsonMap[];
+  };
+
+  constructor({
+    busTimeAdapter,
+    gtfsRtAdapter,
+    gtfsStaticAdapter
+  }: {
+    busTimeAdapter: BusTimeAdapterLike;
+    gtfsRtAdapter: GtfsRtAdapterLike;
+    gtfsStaticAdapter: GtfsStaticAdapterLike;
+  }) {
     this.busTimeAdapter = busTimeAdapter;
     this.gtfsRtAdapter = gtfsRtAdapter;
     this.gtfsStaticAdapter = gtfsStaticAdapter;
@@ -247,12 +363,12 @@ export class MetroService {
     };
   }
 
-  async initialize() {
+  async initialize(): Promise<void> {
     await this.gtfsStaticAdapter.refresh();
     this.lastStatus.static_loaded = this.gtfsStaticAdapter.loaded;
   }
 
-  async routesList(args, authCtx) {
+  async routesList(args: RouteListArgs, authCtx: AuthContext): Promise<JsonMap> {
     const routes = this.gtfsStaticAdapter.listRoutes({ query: args.query });
     if (routes.length > 0) {
       return { routes, source: 'schedule', api_auth_present: Boolean(authCtx.metroApiKey) };
@@ -280,7 +396,7 @@ export class MetroService {
     }
   }
 
-  async stopsList(args, authCtx) {
+  async stopsList(args: StopListArgs, authCtx: AuthContext): Promise<JsonMap> {
     const stops = this.gtfsStaticAdapter.listStops({
       routeId: args.route_id,
       nearLat: args.near_lat,
@@ -298,7 +414,7 @@ export class MetroService {
     }
 
     try {
-      let apiStops = [];
+      let apiStops: JsonMap[] = [];
 
       if (args.route_id) {
         const directions = args.direction_id
@@ -310,8 +426,8 @@ export class MetroService {
             .filter(Boolean)
             .map((direction) =>
               this.busTimeAdapter.getStops({
-                key: authCtx.metroApiKey,
-                routeId: args.route_id,
+                key: authCtx.metroApiKey as string,
+                routeId: args.route_id as string,
                 direction
               })
             )
@@ -334,8 +450,8 @@ export class MetroService {
     }
   }
 
-  async nextDepartures(args, authCtx) {
-    const response = {
+  async nextDepartures(args: NextDeparturesArgs, authCtx: AuthContext): Promise<JsonMap> {
+    const response: DeparturesResponse = {
       departures: [],
       api_auth_required: true,
       api_auth_present: Boolean(authCtx.metroApiKey),
@@ -347,7 +463,7 @@ export class MetroService {
     if (authCtx.metroApiKey) {
       try {
         const predictions = await this.busTimeAdapter.getPredictions({
-          key: authCtx.metroApiKey,
+          key: authCtx.metroApiKey as string,
           stopId: args.stop_id,
           routeId: args.route_id,
           top: args.limit || 5
@@ -366,7 +482,7 @@ export class MetroService {
 
             if (routeIds.length > 0) {
               const vehicleGroups = await Promise.all(
-                routeIds.map((routeId) => this.busTimeAdapter.getVehicles({ key: authCtx.metroApiKey, routeId }))
+                routeIds.map((routeId) => this.busTimeAdapter.getVehicles({ key: authCtx.metroApiKey as string, routeId }))
               );
               const mappedVehicles = vehicleGroups.flat().map(mapBusTimeVehicle);
               const vehiclesById = new Map(mappedVehicles.map((vehicle) => [String(vehicle.vehicle_id), vehicle]));
@@ -422,8 +538,8 @@ export class MetroService {
     return response;
   }
 
-  async vehiclePositions(args, authCtx) {
-    const result = {
+  async vehiclePositions(args: VehiclesArgs, authCtx: AuthContext): Promise<JsonMap> {
+    const result: VehiclesResponse = {
       vehicles: [],
       api_auth_required: true,
       api_auth_present: Boolean(authCtx.metroApiKey),
@@ -434,14 +550,18 @@ export class MetroService {
 
     if (authCtx.metroApiKey) {
       try {
-        let vehicles = [];
+        let vehicles: JsonMap[] = [];
 
         if (args.route_id) {
-          vehicles = await this.busTimeAdapter.getVehicles({ key: authCtx.metroApiKey, routeId: args.route_id });
+          vehicles = await this.busTimeAdapter.getVehicles({ key: authCtx.metroApiKey as string, routeId: args.route_id });
         } else {
-          const routes = await this.busTimeAdapter.getRoutes({ key: authCtx.metroApiKey });
+          const routes = await this.busTimeAdapter.getRoutes({ key: authCtx.metroApiKey as string });
           const vehicleGroups = await Promise.all(
-            routes.map((route) => this.busTimeAdapter.getVehicles({ key: authCtx.metroApiKey, routeId: route.rt }))
+            routes
+              .filter((route) => route.rt)
+              .map((route) =>
+                this.busTimeAdapter.getVehicles({ key: authCtx.metroApiKey as string, routeId: String(route.rt) })
+              )
           );
           vehicles = vehicleGroups.flat();
         }
@@ -466,8 +586,8 @@ export class MetroService {
     return result;
   }
 
-  async serviceAlerts(args, authCtx) {
-    const result = {
+  async serviceAlerts(args: AlertsArgs, authCtx: AuthContext): Promise<JsonMap> {
+    const result: AlertsResponse = {
       alerts: [],
       api_auth_required: true,
       api_auth_present: Boolean(authCtx.metroApiKey),
@@ -481,7 +601,7 @@ export class MetroService {
         const hasFilter = Boolean(args.route_id || args.stop_id);
         const [bulletins, detours] = await Promise.all([
           hasFilter ? this.busTimeAdapter.getServiceBulletins({ key: authCtx.metroApiKey, routeId: args.route_id, stopId: args.stop_id }) : Promise.resolve([]),
-          this.busTimeAdapter.getDetours({ key: authCtx.metroApiKey, routeId: args.route_id })
+          this.busTimeAdapter.getDetours({ key: authCtx.metroApiKey as string, routeId: args.route_id })
         ]);
 
         const apiAlerts = [...bulletins.map(mapBulletin), ...detours.map(mapDetour)];
@@ -505,7 +625,7 @@ export class MetroService {
     return result;
   }
 
-  async #getAllApiStops(key) {
+  async #getAllApiStops(key: string): Promise<JsonMap[]> {
     const now = Date.now();
     if (this.apiStopCache.stops.length > 0 && now - this.apiStopCache.fetchedAtMs < 5 * 60 * 1000) {
       return this.apiStopCache.stops;
@@ -513,8 +633,10 @@ export class MetroService {
 
     const routes = await this.busTimeAdapter.getRoutes({ key });
     const stopPairs = await Promise.all(
-      routes.map(async (route) => {
-        const routeId = route.rt;
+      routes
+        .filter((route) => route.rt)
+        .map(async (route) => {
+        const routeId = String(route.rt);
         const directions = await this.busTimeAdapter.getDirections({ key, routeId });
         const directionTokens = directions.map(normalizeDirectionToken).filter(Boolean);
         const stopGroups = await Promise.all(
@@ -522,7 +644,7 @@ export class MetroService {
         );
 
         return stopGroups.flat().map((stop) => mapBusTimeStop(stop, routeId));
-      })
+        })
     );
 
     const deduped = this.#dedupeStops(stopPairs.flat());
@@ -533,7 +655,7 @@ export class MetroService {
     return deduped;
   }
 
-  #filterStopsByGeo(stops, nearLat, nearLon, radiusMeters) {
+  #filterStopsByGeo(stops: JsonMap[], nearLat: number, nearLon: number, radiusMeters: number): JsonMap[] {
     const lat = Number(nearLat);
     const lon = Number(nearLon);
     const radius = Number(radiusMeters || 500);
@@ -549,7 +671,7 @@ export class MetroService {
       .map((item) => ({ ...item.stop, distance_m: Math.round(item.distance) }));
   }
 
-  #dedupeStops(stops) {
+  #dedupeStops(stops: JsonMap[]): JsonMap[] {
     const unique = new Map();
     for (const stop of stops) {
       unique.set(String(stop.stop_id), stop);
@@ -557,7 +679,7 @@ export class MetroService {
     return Array.from(unique.values());
   }
 
-  dataStatus(authCtx) {
+  dataStatus(authCtx: AuthContext): JsonMap {
     return {
       auth_mode: 'pass_through',
       api_auth_present: Boolean(authCtx.metroApiKey),
@@ -568,9 +690,9 @@ export class MetroService {
   }
 }
 
-function haversineMeters(lat1, lon1, lat2, lon2) {
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
-  const toRad = (deg) => (deg * Math.PI) / 180;
+  const toRad = (deg: number): number => (deg * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a =

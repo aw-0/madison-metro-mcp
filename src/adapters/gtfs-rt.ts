@@ -1,5 +1,27 @@
+type FetchLike = typeof fetch;
+type LoggerLike = Pick<typeof console, 'warn'>;
+type JsonRecord = Record<string, any>;
+
 export class GtfsRtAdapter {
-  constructor({ tripUpdatesUrl = '', vehiclePositionsUrl = '', alertsUrl = '', fetchImpl = fetch, logger = console }) {
+  tripUpdatesUrl: string;
+  vehiclePositionsUrl: string;
+  alertsUrl: string;
+  fetchImpl: FetchLike;
+  logger: LoggerLike;
+
+  constructor({
+    tripUpdatesUrl = '',
+    vehiclePositionsUrl = '',
+    alertsUrl = '',
+    fetchImpl = fetch,
+    logger = console
+  }: {
+    tripUpdatesUrl?: string;
+    vehiclePositionsUrl?: string;
+    alertsUrl?: string;
+    fetchImpl?: FetchLike;
+    logger?: LoggerLike;
+  }) {
     this.tripUpdatesUrl = tripUpdatesUrl;
     this.vehiclePositionsUrl = vehiclePositionsUrl;
     this.alertsUrl = alertsUrl;
@@ -7,7 +29,7 @@ export class GtfsRtAdapter {
     this.logger = logger;
   }
 
-  async getPredictionsForStop({ stopId, routeId, limit = 5 }) {
+  async getPredictionsForStop({ stopId, routeId, limit = 5 }: { stopId: string; routeId?: string; limit?: number }) {
     const feed = await this.#fetchEntities(this.tripUpdatesUrl);
     if (feed.length === 0) {
       return [];
@@ -51,7 +73,7 @@ export class GtfsRtAdapter {
     return departures.slice(0, limit);
   }
 
-  async getVehiclePositions({ routeId, limit = 50 }) {
+  async getVehiclePositions({ routeId, limit = 50 }: { routeId?: string; limit?: number }) {
     const feed = await this.#fetchEntities(this.vehiclePositionsUrl);
     const positions = [];
 
@@ -81,7 +103,7 @@ export class GtfsRtAdapter {
     return positions.slice(0, limit);
   }
 
-  async getAlerts({ routeId, stopId }) {
+  async getAlerts({ routeId, stopId }: { routeId?: string; stopId?: string }) {
     const feed = await this.#fetchEntities(this.alertsUrl);
     const alerts = [];
 
@@ -92,8 +114,8 @@ export class GtfsRtAdapter {
       }
 
       const informed = alert.informed_entity || [];
-      const routeMatches = !routeId || informed.some((item) => String(item.route_id) === String(routeId));
-      const stopMatches = !stopId || informed.some((item) => String(item.stop_id) === String(stopId));
+      const routeMatches = !routeId || informed.some((item: JsonRecord) => String(item.route_id) === String(routeId));
+      const stopMatches = !stopId || informed.some((item: JsonRecord) => String(item.stop_id) === String(stopId));
 
       if (!routeMatches || !stopMatches) {
         continue;
@@ -113,7 +135,7 @@ export class GtfsRtAdapter {
     return alerts;
   }
 
-  async #fetchEntities(url) {
+  async #fetchEntities(url: string): Promise<JsonRecord[]> {
     if (!url) {
       return [];
     }
@@ -125,11 +147,11 @@ export class GtfsRtAdapter {
         return [];
       }
 
-      const json = await response.json();
+      const json = (await response.json()) as JsonRecord;
       const entities = json?.entity || [];
       return Array.isArray(entities) ? entities : [];
-    } catch (err) {
-      this.logger.warn(`GTFS-RT fetch error: ${err?.message || err}`);
+    } catch (err: unknown) {
+      this.logger.warn(`GTFS-RT fetch error: ${(err as { message?: string } | null | undefined)?.message || String(err)}`);
       return [];
     }
   }

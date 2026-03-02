@@ -1,12 +1,16 @@
-import { loadConfig } from './config.js';
 import { BusTimeApiAdapter } from './adapters/bustime.js';
 import { GtfsRtAdapter } from './adapters/gtfs-rt.js';
 import { GtfsStaticAdapter } from './adapters/gtfs-static.js';
+import { loadConfig } from './config.js';
 import { MetroService } from './metro-service.js';
-import { JsonRpcMcpServer } from './mcp-server.js';
 
-async function main() {
-  const config = loadConfig(process.env);
+export type AppContext = {
+  metroService: MetroService;
+  defaultMetroApiKey: string;
+};
+
+export async function createAppContext(env: NodeJS.ProcessEnv = process.env): Promise<AppContext> {
+  const config = loadConfig(env);
 
   const busTimeAdapter = new BusTimeApiAdapter({
     baseUrl: config.bustimeBaseUrl,
@@ -30,14 +34,10 @@ async function main() {
     gtfsStaticAdapter
   });
 
-  const server = new JsonRpcMcpServer({
+  await metroService.initialize();
+
+  return {
     metroService,
     defaultMetroApiKey: config.bustimeApiKey
-  });
-  server.start();
+  };
 }
-
-main().catch((err) => {
-  console.error('Fatal startup error:', err);
-  process.exit(1);
-});

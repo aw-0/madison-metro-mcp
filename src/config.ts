@@ -6,12 +6,26 @@ const DEFAULTS = {
   rtRefreshSeconds: 20
 };
 
-function toInt(value, fallback) {
+export type AppConfig = {
+  bustimeBaseUrl: string;
+  bustimeApiKey: string;
+  gtfsUrl: string;
+  gtfsRtTripUpdatesUrl: string;
+  gtfsRtVehiclePositionsUrl: string;
+  gtfsRtAlertsUrl: string;
+  gtfsStaticSnapshotPath: string;
+  gtfsStaticSnapshotUrl: string;
+  apiTimeoutMs: number;
+  apiCacheSeconds: number;
+  rtRefreshSeconds: number;
+};
+
+function toInt(value: unknown, fallback: number): number {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function loadConfig(env = process.env) {
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     bustimeBaseUrl: env.MADISON_BUSTIME_BASE_URL || DEFAULTS.bustimeBaseUrl,
     bustimeApiKey: env.MADISON_BUSTIME_API_KEY || '',

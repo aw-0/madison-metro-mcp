@@ -3,12 +3,28 @@
   "version": "0.1.0",
   "description": "Madison Metro MCP server with BusTime credential pass-through",
   "type": "module",
-  "main": "src/index.js",
+  "main": "dist/src/index.js",
+  "packageManager": "bun@1.3.3",
   "scripts": {
-    "start": "node src/index.js",
-    "test": "node --test"
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "build": "bunx tsc -p tsconfig.json",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test",
+    "mcp:server": "bun run start",
+    "mcp:inspector": "npx -y @modelcontextprotocol/inspector@latest --config ./mcp.inspector.local.json --server metro-http-local"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.9",
+    "@types/node": "^25.3.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   }
 }

@@ -1,9 +1,9 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
 import { MetroService } from '../src/metro-service.js';
 import { BusTimeApiError } from '../src/adapters/bustime.js';
 
-function makeService(overrides = {}) {
+function makeService(overrides: Record<string, unknown> = {}): MetroService {
+  type Adapters = ConstructorParameters<typeof MetroService>[0];
   const busTimeAdapter = overrides.busTimeAdapter || {
     getPredictions: async () => [],
     getVehicles: async () => [],
@@ -28,27 +28,31 @@ function makeService(overrides = {}) {
     getScheduledDepartures: () => []
   };
 
-  return new MetroService({ busTimeAdapter, gtfsRtAdapter, gtfsStaticAdapter });
+  return new MetroService({
+    busTimeAdapter: busTimeAdapter as Adapters['busTimeAdapter'],
+    gtfsRtAdapter: gtfsRtAdapter as Adapters['gtfsRtAdapter'],
+    gtfsStaticAdapter: gtfsStaticAdapter as Adapters['gtfsStaticAdapter']
+  });
 }
 
 test('nextDepartures uses API when bearer token is present and API returns predictions', async () => {
   const service = makeService({
     busTimeAdapter: {
-      getPredictions: async ({ key }) => {
-        assert.equal(key, 'metro-token');
+      getPredictions: async ({ key }: { key: string }) => {
+        expect(key).toBe('metro-token');
         return [{ stpid: '123', rt: 'A', prdtm: '20260227 12:05', schdtm: '20260227 12:00', psgld: 'EMPTY' }];
       }
     }
   });
 
   const result = await service.nextDepartures({ stop_id: '123' }, { metroApiKey: 'metro-token' });
-  assert.equal(result.source, 'api');
-  assert.equal(result.api_tier_used, true);
-  assert.equal(result.departures.length, 1);
-  assert.equal(Boolean(result.departures[0].predicted_time), true);
-  assert.equal(result.departures[0].capacity_level, 'empty');
-  assert.equal(result.departures[0].capacity_load_raw, 'EMPTY');
-  assert.equal(result.departures[0].capacity_percent, null);
+  expect(result.source).toBe('api');
+  expect(result.api_tier_used).toBe(true);
+  expect(result.departures.length).toBe(1);
+  expect(Boolean(result.departures[0].predicted_time)).toBe(true);
+  expect(result.departures[0].capacity_level).toBe('empty');
+  expect(result.departures[0].capacity_load_raw).toBe('EMPTY');
+  expect(result.departures[0].capacity_percent).toBeNull();
 });
 
 test('nextDepartures falls back with missing auth', async () => {
@@ -61,8 +65,8 @@ test('nextDepartures falls back with missing auth', async () => {
   });
 
   const result = await service.nextDepartures({ stop_id: '123' }, { metroApiKey: undefined });
-  assert.equal(result.fallback_reason, 'missing_auth');
-  assert.equal(result.source, 'gtfs_rt');
+  expect(result.fallback_reason).toBe('missing_auth');
+  expect(result.source).toBe('gtfs_rt');
 });
 
 test('nextDepartures falls back when API errors', async () => {
@@ -82,8 +86,8 @@ test('nextDepartures falls back when API errors', async () => {
   });
 
   const result = await service.nextDepartures({ stop_id: '123' }, { metroApiKey: 'metro-token' });
-  assert.equal(result.fallback_reason, 'api_timeout');
-  assert.equal(result.source, 'schedule');
+  expect(result.fallback_reason).toBe('api_timeout');
+  expect(result.source).toBe('schedule');
 });
 
 test('nextDepartures enriches capacity from vehicles when prediction load is missing', async () => {
@@ -99,18 +103,18 @@ test('nextDepartures enriches capacity from vehicles when prediction load is mis
           psgld: ''
         }
       ],
-      getVehicles: async ({ routeId }) => {
-        assert.equal(routeId, '80');
+      getVehicles: async ({ routeId }: { routeId: string }) => {
+        expect(routeId).toBe('80');
         return [{ vid: '2212', rt: '80', lat: 43.07, lon: -89.4, psgld: 'FULL' }];
       }
     }
   });
 
   const result = await service.nextDepartures({ stop_id: '0336', route_id: '80' }, { metroApiKey: 'metro-token' });
-  assert.equal(result.source, 'api');
-  assert.equal(result.departures.length, 1);
-  assert.equal(result.departures[0].capacity_load_raw, 'FULL');
-  assert.equal(result.departures[0].capacity_level, 'full');
+  expect(result.source).toBe('api');
+  expect(result.departures.length).toBe(1);
+  expect(result.departures[0].capacity_load_raw).toBe('FULL');
+  expect(result.departures[0].capacity_level).toBe('full');
 });
 
 test('nextDepartures enriches capacity from vehicles by trip_id when vid is missing', async () => {
@@ -132,10 +136,10 @@ test('nextDepartures enriches capacity from vehicles by trip_id when vid is miss
   });
 
   const result = await service.nextDepartures({ stop_id: '0336', route_id: '80' }, { metroApiKey: 'metro-token' });
-  assert.equal(result.source, 'api');
-  assert.equal(result.departures.length, 1);
-  assert.equal(result.departures[0].capacity_load_raw, 'EMPTY');
-  assert.equal(result.departures[0].capacity_level, 'empty');
+  expect(result.source).toBe('api');
+  expect(result.departures.length).toBe(1);
+  expect(result.departures[0].capacity_load_raw).toBe('EMPTY');
+  expect(result.departures[0].capacity_level).toBe('empty');
 });
 
 test('vehiclePositions maps capacity fields from API load values', async () => {
@@ -154,9 +158,9 @@ test('vehiclePositions maps capacity fields from API load values', async () => {
   });
 
   const result = await service.vehiclePositions({ route_id: '80' }, { metroApiKey: 'metro-token' });
-  assert.equal(result.source, 'api');
-  assert.equal(result.vehicles.length, 1);
-  assert.equal(result.vehicles[0].capacity_load_raw, '67%');
-  assert.equal(result.vehicles[0].capacity_percent, 67);
-  assert.equal(result.vehicles[0].capacity_level, 'medium');
+  expect(result.source).toBe('api');
+  expect(result.vehicles.length).toBe(1);
+  expect(result.vehicles[0].capacity_load_raw).toBe('67%');
+  expect(result.vehicles[0].capacity_percent).toBe(67);
+  expect(result.vehicles[0].capacity_level).toBe('medium');
 });

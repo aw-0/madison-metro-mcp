@@ -1,7 +1,58 @@
 import fs from 'node:fs/promises';
 
+type FetchLike = typeof fetch;
+type LoggerLike = Pick<typeof console, 'warn'>;
+
+type StaticRoute = {
+  route_id?: string;
+  route_short_name?: string;
+  route_long_name?: string;
+};
+
+type StaticStop = {
+  stop_id?: string;
+  stop_name?: string;
+  stop_lat?: number | string;
+  stop_lon?: number | string;
+  route_ids?: string[];
+  distance_m?: number;
+};
+
+type StaticScheduleEntry = {
+  route_id?: string;
+  trip_id?: string;
+  scheduled_time: string;
+};
+
+type SnapshotData = {
+  routes?: StaticRoute[];
+  stops?: StaticStop[];
+  scheduleByStop?: Record<string, StaticScheduleEntry[]>;
+};
+
 export class GtfsStaticAdapter {
-  constructor({ snapshotPath = '', snapshotUrl = '', fetchImpl = fetch, logger = console }) {
+  snapshotPath: string;
+  snapshotUrl: string;
+  fetchImpl: FetchLike;
+  logger: LoggerLike;
+  loaded: boolean;
+  data: {
+    routes: StaticRoute[];
+    stops: StaticStop[];
+    scheduleByStop: Record<string, StaticScheduleEntry[]>;
+  };
+
+  constructor({
+    snapshotPath = '',
+    snapshotUrl = '',
+    fetchImpl = fetch,
+    logger = console
+  }: {
+    snapshotPath?: string;
+    snapshotUrl?: string;
+    fetchImpl?: FetchLike;
+    logger?: LoggerLike;
+  }) {
     this.snapshotPath = snapshotPath;
     this.snapshotUrl = snapshotUrl;
     this.fetchImpl = fetchImpl;
@@ -32,13 +83,13 @@ export class GtfsStaticAdapter {
       }
 
       this.loaded = true;
-    } catch (err) {
-      this.logger.warn(`GTFS static refresh failed: ${err?.message || err}`);
+    } catch (err: unknown) {
+      this.logger.warn(`GTFS static refresh failed: ${(err as { message?: string } | null | undefined)?.message || String(err)}`);
       this.loaded = true;
     }
   }
 
-  listRoutes({ query } = {}) {
+  listRoutes({ query }: { query?: string } = {}): StaticRoute[] {
     const q = String(query || '').toLowerCase();
     if (!q) {
       return this.data.routes;
@@ -49,7 +100,19 @@ export class GtfsStaticAdapter {
     });
   }
 
-  listStops({ routeId, nearLat, nearLon, radiusM = 500, limit = 50 } = {}) {
+  listStops({
+    routeId,
+    nearLat,
+    nearLon,
+    radiusM = 500,
+    limit = 50
+  }: {
+    routeId?: string;
+    nearLat?: number;
+    nearLon?: number;
+    radiusM?: number;
+    limit?: number;
+  } = {}): StaticStop[] {
     let stops = this.data.stops;
 
     if (routeId) {
@@ -74,7 +137,17 @@ export class GtfsStaticAdapter {
     return stops.slice(0, Number(limit));
   }
 
-  getScheduledDepartures({ stopId, routeId, limit = 5, withinMinutes }) {
+  getScheduledDepartures({
+    stopId,
+    routeId,
+    limit = 5,
+    withinMinutes
+  }: {
+    stopId: string;
+    routeId?: string;
+    limit?: number;
+    withinMinutes?: number;
+  }) {
     const all = this.data.scheduleByStop[String(stopId)] || [];
     const now = Date.now();
     const maxMs = withinMinutes ? now + Number(withinMinutes) * 60_000 : Number.POSITIVE_INFINITY;
@@ -100,7 +173,7 @@ export class GtfsStaticAdapter {
     return filtered.slice(0, Number(limit));
   }
 
-  #setData(next) {
+  #setData(next: SnapshotData): void {
     this.data = {
       routes: Array.isArray(next?.routes) ? next.routes : [],
       stops: Array.isArray(next?.stops) ? next.stops : [],
@@ -110,9 +183,9 @@ export class GtfsStaticAdapter {
   }
 }
 
-function haversineMeters(lat1, lon1, lat2, lon2) {
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
-  const toRad = (deg) => (deg * Math.PI) / 180;
+  const toRad = (deg: number): number => (deg * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a =

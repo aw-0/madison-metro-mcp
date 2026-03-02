@@ -1,4 +1,4 @@
-export function redactUrl(urlString) {
+export function redactUrl(urlString: string): string {
   try {
     const url = new URL(urlString);
     if (url.searchParams.has('key')) {
@@ -10,11 +10,11 @@ export function redactUrl(urlString) {
   }
 }
 
-export function sanitizeErrorMessage(err) {
+export function sanitizeErrorMessage(err: unknown): string {
   if (!err) {
     return 'unknown_error';
   }
 
-  const message = String(err.message || err);
+  const message = String((err as { message?: unknown }).message || err);
   return message.replace(/([?&]key=)[^&\s]+/gi, '$1[REDACTED]');
 }
